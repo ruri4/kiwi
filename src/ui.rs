@@ -7,6 +7,8 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+mod session_browser;
+
 const INK: Color = Color::Rgb(10, 11, 16);
 const FOG: Color = Color::Rgb(214, 216, 226);
 const MUTED: Color = Color::Rgb(125, 128, 143);
@@ -33,6 +35,9 @@ pub fn draw(frame: &mut Frame<'_>, state: &mut AppState) {
     draw_transcript(frame, state, transcript);
     draw_composer(frame, state, composer);
     draw_footer(frame, footer);
+    if state.session_browser().is_some() {
+        session_browser::draw(frame, state);
+    }
 }
 
 fn draw_header(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
@@ -44,7 +49,12 @@ fn draw_header(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             Modifier::empty()
         });
     let line = Line::from(vec![
-        Span::styled("model ", Style::default().fg(MUTED)),
+        Span::styled("session ", Style::default().fg(MUTED)),
+        Span::styled(
+            state.active_session_name().to_owned(),
+            Style::default().fg(CYAN),
+        ),
+        Span::styled("  model ", Style::default().fg(MUTED)),
         Span::styled(state.model().to_owned(), Style::default().fg(VIOLET)),
         Span::styled("  reasoning ", Style::default().fg(MUTED)),
         Span::styled(
@@ -75,7 +85,7 @@ fn draw_transcript(frame: &mut Frame<'_>, state: &mut AppState, area: Rect) {
     let content_width = width.saturating_sub(horizontal_padding * 2).max(1);
     let mut lines = Vec::new();
     let mut rows = 0usize;
-    for message in &state.transcript {
+    for message in state.transcript() {
         let content_style = message_style(message.role);
         lines.push(padded_message_line(
             "",
@@ -241,7 +251,7 @@ fn draw_footer(frame: &mut Frame<'_>, area: Rect) {
         .padding(Padding::new(2, 2, 1, 1))
         .style(Style::default().bg(INK));
     let footer = Paragraph::new(
-        "enter send  alt+enter newline  pgup/pgdn scroll  ctrl+r effort  ctrl+c/q quit",
+        "enter send  alt+enter newline  ctrl+s sessions  pgup/pgdn scroll  ctrl+r effort  ctrl+c/q quit",
     )
     .style(Style::default().fg(MUTED).bg(INK))
     .block(block);

@@ -5,6 +5,11 @@ pub struct Composer {
 }
 
 impl Composer {
+    pub fn from_text(text: String) -> Self {
+        let cursor = text.len();
+        Self { text, cursor }
+    }
+
     pub fn text(&self) -> &str {
         &self.text
     }

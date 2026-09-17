@@ -67,10 +67,30 @@ Run `cargo run -- --help` for concise command-line help.
 | `Home` / `End` | Move to the start / end of the current input line |
 | `Backspace` / `Delete` | Delete before / under the cursor without splitting UTF-8 |
 | `PageUp` / `PageDown` | Scroll the transcript |
+| `Ctrl+S` | Open or close the session browser while idle |
 | `Ctrl+R` | Cycle reasoning effort while idle: `auto` → `none` → `low` → `medium` → `high` → `auto` |
 | `Ctrl+C` / `Ctrl+Q` | Exit |
 
-`Ctrl+R` is ignored while a request is active. Each request captures the effort shown in the header when it starts. Explicit efforts are sent as the top-level OpenAI/vLLM `reasoning_effort` property; endpoints and models differ in which effort levels they support.
+`Ctrl+S` and `Ctrl+R` are ignored while a request is active. Each request captures the effort shown in the header when it starts. Explicit efforts are sent as the top-level OpenAI/vLLM `reasoning_effort` property; endpoints and models differ in which effort levels they support.
+
+### session browser
+
+| key | action |
+| --- | --- |
+| `Up` / `Down` | Move the selected session |
+| `Enter` | Switch to the selected session |
+| `n` | Create and switch to a new session |
+| `r` | Rename the selected session; `Enter` saves a nonblank name and `Escape` cancels |
+| `d` | Begin deleting the selected session; `y` confirms and `n` or `Escape` cancels |
+| `Escape` | Cancel rename/deletion, or close the browser |
+
+At least one session is always kept. New sessions are named `Untitled`; the first sent user message supplies an automatic, single-line title unless the session was manually renamed first. Paste goes to the rename field while it is open. The active session is shown in the main header.
+
+## saved sessions
+
+Sessions are saved as versioned JSON in the platform-standard local data directory and the last active session is restored at startup. On Linux this is `$XDG_DATA_HOME/llm-chat/sessions.json`, or `~/.local/share/llm-chat/sessions.json` when `XDG_DATA_HOME` is unset. Parent directories are created as needed, and updates use a restrictive temporary sibling followed by an atomic rename.
+
+The store contains session names, displayed transcripts (including reasoning and errors), and the separate successful API conversation used as model context. It never contains the endpoint, model configuration, or API key. A malformed store or unsupported schema version stops startup with an error rather than replacing existing data. Save failures are shown in the UI status.
 
 The stream decoder reads final answer text from `choices[0].delta.content` and reasoning from `choices[0].delta.reasoning_content` or `choices[0].delta.reasoning`. Reasoning is shown as a muted, transcript-only section and is never included in later conversation history. Reasoning display depends on the endpoint and model emitting one of those supported delta fields.
 

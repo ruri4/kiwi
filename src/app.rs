@@ -11,8 +11,9 @@ use tokio::task::JoinHandle;
 
 pub async fn run(config: Config) -> Result<()> {
     let client = network::client()?;
+    let state = AppState::load(config)?;
     let mut terminal = TerminalSession::start()?;
-    let result = run_loop(terminal.terminal_mut(), config, client).await;
+    let result = run_loop(terminal.terminal_mut(), state, client).await;
     let cleanup = terminal.restore();
     match (result, cleanup) {
         (Ok(()), Ok(())) => Ok(()),
@@ -26,10 +27,9 @@ pub async fn run(config: Config) -> Result<()> {
 
 async fn run_loop(
     terminal: &mut crate::terminal::Tui,
-    config: Config,
+    mut state: AppState,
     client: reqwest::Client,
 ) -> Result<()> {
-    let mut state = AppState::new(config);
     let mut terminal_events = EventStream::new();
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let mut task: Option<JoinHandle<()>> = None;
@@ -54,7 +54,7 @@ async fn run_loop(
                             }));
                         }
                     },
-                    Event::Paste(value) => state.composer.insert_str(&value),
+                    Event::Paste(value) => state.handle_paste(&value),
                     Event::Mouse(mouse) => state.handle_mouse(mouse),
                     Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => {}
                 }
