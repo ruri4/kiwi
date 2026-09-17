@@ -1,5 +1,5 @@
 # Copy this file to the platform configuration directory as config.yaml,
-# or pass its path with --config / LLM_CHAT_CONFIG.
+# or pass its path with --config / KIWI_CONFIG.
 default_endpoint: local
 reasoning_effort: auto
 endpoints:

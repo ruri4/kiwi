@@ -12,7 +12,7 @@ fn temporary_directory(name: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock after epoch")
         .as_nanos();
-    let path = std::env::temp_dir().join(format!("llm-chat-{name}-{}-{nonce}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("kiwi-{name}-{}-{nonce}", std::process::id()));
     fs::create_dir_all(&path).expect("create test directory");
     path
 }

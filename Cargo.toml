@@ -1,5 +1,5 @@
 [package]
-name = "llm-chat"
+name = "kiwi"
 version = "0.1.0"
 edition = "2024"
 description = "A minimal terminal client for OpenAI-compatible streaming chat endpoints"
