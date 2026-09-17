@@ -1,0 +1,92 @@
+use crate::cli::Config;
+use crate::network::{self, NetworkEvent};
+use crate::state::{Action, AppState};
+use crate::terminal::TerminalSession;
+use crate::ui;
+use anyhow::{Context, Result, anyhow};
+use crossterm::event::{Event, EventStream};
+use futures_util::StreamExt;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
+pub async fn run(config: Config) -> Result<()> {
+    let client = network::client()?;
+    let mut terminal = TerminalSession::start()?;
+    let result = run_loop(terminal.terminal_mut(), config, client).await;
+    let cleanup = terminal.restore();
+    match (result, cleanup) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(error)) => Err(error),
+        (Err(error), Err(cleanup_error)) => Err(anyhow!(
+            "{error:#}; terminal cleanup also failed: {cleanup_error:#}"
+        )),
+    }
+}
+
+async fn run_loop(
+    terminal: &mut crate::terminal::Tui,
+    config: Config,
+    client: reqwest::Client,
+) -> Result<()> {
+    let mut state = AppState::new(config);
+    let mut terminal_events = EventStream::new();
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let mut task: Option<JoinHandle<()>> = None;
+
+    loop {
+        terminal
+            .draw(|frame| ui::draw(frame, &mut state))
+            .context("failed to draw terminal UI")?;
+
+        tokio::select! {
+            event = terminal_events.next() => {
+                let event = event.ok_or_else(|| anyhow!("terminal event stream ended"))??;
+                match event {
+                    Event::Key(key) => match state.handle_key(key) {
+                        Action::Continue => {}
+                        Action::Quit => break,
+                        Action::Send(request) => {
+                            let client = client.clone();
+                            let sender = sender.clone();
+                            task = Some(tokio::spawn(async move {
+                                network::stream_chat(client, request, sender).await;
+                            }));
+                        }
+                    },
+                    Event::Paste(value) => state.composer.insert_str(&value),
+                    Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Mouse(_) => {}
+                }
+            }
+            event = receiver.recv(), if state.in_flight => {
+                let event = event.ok_or_else(|| anyhow!("network event channel closed"))?;
+                let finished = matches!(&event, NetworkEvent::Finished | NetworkEvent::Failed(_));
+                state.handle_network(event);
+                if finished {
+                    reap_task(&mut task).await?;
+                }
+            }
+        }
+    }
+
+    stop_task(&mut task).await
+}
+
+async fn reap_task(task: &mut Option<JoinHandle<()>>) -> Result<()> {
+    if let Some(handle) = task.take() {
+        handle.await.context("network task failed")?;
+    }
+    Ok(())
+}
+
+async fn stop_task(task: &mut Option<JoinHandle<()>>) -> Result<()> {
+    if let Some(handle) = task.take() {
+        handle.abort();
+        match handle.await {
+            Ok(()) => {}
+            Err(error) if error.is_cancelled() => {}
+            Err(error) => return Err(error).context("network task failed during shutdown"),
+        }
+    }
+    Ok(())
+}
