@@ -9,17 +9,39 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const STORE_VERSION: u32 = 1;
+const STORE_VERSION: u32 = 2;
 const STORE_FILE: &str = "sessions.json";
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct StoreDocument {
+struct StoreDocumentV1 {
     version: u32,
     active_session_id: u64,
     next_session_id: u64,
     sessions: Vec<Session>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoreDocumentV2 {
+    version: u32,
+    active_session_id: u64,
+    next_session_id: u64,
+    sessions: Vec<Session>,
+    selection: Option<GlobalSelection>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GlobalSelection {
+    pub(crate) endpoint: String,
+    pub(crate) model: Option<String>,
+}
+
+pub(crate) struct StoredState {
+    pub(crate) sessions: Sessions,
+    pub(crate) selection: Option<GlobalSelection>,
 }
 
 pub(crate) struct SessionStorage {
@@ -35,7 +57,7 @@ impl SessionStorage {
         })
     }
 
-    pub(crate) fn load(&self) -> Result<Option<Sessions>> {
+    pub(crate) fn load(&self) -> Result<Option<StoredState>> {
         let bytes = match fs::read(&self.path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
@@ -45,31 +67,67 @@ impl SessionStorage {
                 });
             }
         };
-        let document: StoreDocument = serde_json::from_slice(&bytes)
+        let value: serde_json::Value = serde_json::from_slice(&bytes)
             .with_context(|| format!("malformed session store {}", self.path.display()))?;
-        if document.version != STORE_VERSION {
-            bail!(
-                "unsupported session store version {} in {}; expected {}",
-                document.version,
-                self.path.display(),
-                STORE_VERSION
-            );
-        }
-        let sessions = Sessions::restore(
-            document.sessions,
-            document.active_session_id,
-            document.next_session_id,
-        )
-        .with_context(|| format!("invalid session store {}", self.path.display()))?;
-        Ok(Some(sessions))
+        let version = value
+            .get("version")
+            .and_then(serde_json::Value::as_u64)
+            .context("session store version is missing or malformed")?;
+        let (sessions, active_session_id, next_session_id, selection) = match version {
+            1 => {
+                let document: StoreDocumentV1 = serde_json::from_value(value)
+                    .with_context(|| format!("malformed session store {}", self.path.display()))?;
+                if document.version != 1 {
+                    bail!("session store version changed while loading");
+                }
+                (
+                    document.sessions,
+                    document.active_session_id,
+                    document.next_session_id,
+                    None,
+                )
+            }
+            2 => {
+                let document: StoreDocumentV2 = serde_json::from_value(value)
+                    .with_context(|| format!("malformed session store {}", self.path.display()))?;
+                if document.version != STORE_VERSION {
+                    bail!("session store version changed while loading");
+                }
+                (
+                    document.sessions,
+                    document.active_session_id,
+                    document.next_session_id,
+                    document.selection,
+                )
+            }
+            _ => {
+                bail!(
+                    "unsupported session store version {version} in {}; expected 1 or {STORE_VERSION}",
+                    self.path.display()
+                );
+            }
+        };
+        let sessions = Sessions::restore(sessions, active_session_id, next_session_id)
+            .with_context(|| format!("invalid session store {}", self.path.display()))?;
+        validate_selection(selection.as_ref())
+            .with_context(|| format!("invalid session store {}", self.path.display()))?;
+        Ok(Some(StoredState {
+            sessions,
+            selection,
+        }))
     }
 
-    pub(crate) fn save(&self, sessions: &Sessions) -> Result<()> {
-        let document = StoreDocument {
+    pub(crate) fn save(
+        &self,
+        sessions: &Sessions,
+        selection: Option<&GlobalSelection>,
+    ) -> Result<()> {
+        let document = StoreDocumentV2 {
             version: STORE_VERSION,
             active_session_id: sessions.active_id(),
             next_session_id: sessions.next_id(),
             sessions: sessions.items().to_vec(),
+            selection: selection.cloned(),
         };
         let bytes =
             serde_json::to_vec_pretty(&document).context("failed to serialize session store")?;
@@ -121,6 +179,23 @@ impl SessionStorage {
     fn at(path: PathBuf) -> Self {
         Self { path }
     }
+}
+
+fn validate_selection(selection: Option<&GlobalSelection>) -> Result<()> {
+    let Some(selection) = selection else {
+        return Ok(());
+    };
+    if selection.endpoint.trim().is_empty() {
+        bail!("saved endpoint selection is blank");
+    }
+    if selection
+        .model
+        .as_deref()
+        .is_some_and(|model| model.trim().is_empty())
+    {
+        bail!("saved model selection is blank");
+    }
+    Ok(())
 }
 
 fn create_private_directory(path: &Path) -> Result<()> {

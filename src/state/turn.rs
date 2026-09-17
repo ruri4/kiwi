@@ -1,5 +1,5 @@
 use super::{AppState, PendingTurn};
-use crate::network::{ChatRequest, NetworkEvent};
+use crate::network::ChatRequest;
 use crate::types::{Message, Role};
 
 impl AppState {
@@ -8,6 +8,16 @@ impl AppState {
             self.add_error("active session is unavailable".to_owned());
             return None;
         }
+        let Some(profile) = self.active_profile() else {
+            self.add_error("active endpoint is unavailable".to_owned());
+            return None;
+        };
+        let endpoint = profile.chat_url.clone();
+        let api_key = profile.api_key.clone();
+        let Some(model) = self.model.clone() else {
+            self.add_error("no model is available".to_owned());
+            return None;
+        };
         let user = self.composer.take();
         self.sessions.name_first_message(&user);
         let conversation = self.sessions.active()?.conversation.clone();
@@ -38,24 +48,15 @@ impl AppState {
             content: user,
         });
         Some(ChatRequest {
-            endpoint: self.endpoint.clone(),
-            model: self.model.clone(),
-            api_key: self.api_key.clone(),
+            endpoint,
+            model,
+            api_key,
             messages,
             reasoning_effort: self.reasoning_effort,
         })
     }
 
-    pub fn handle_network(&mut self, event: NetworkEvent) {
-        match event {
-            NetworkEvent::Delta(content) => self.append_delta(content),
-            NetworkEvent::Reasoning(content) => self.append_reasoning(content),
-            NetworkEvent::Finished => self.finish_turn(),
-            NetworkEvent::Failed(error) => self.fail_turn(error),
-        }
-    }
-
-    fn append_delta(&mut self, content: String) {
+    pub(super) fn append_delta(&mut self, content: String) {
         if content.is_empty() {
             return;
         }
@@ -73,7 +74,7 @@ impl AppState {
         );
     }
 
-    fn append_reasoning(&mut self, content: String) {
+    pub(super) fn append_reasoning(&mut self, content: String) {
         if content.is_empty() {
             return;
         }
@@ -99,7 +100,7 @@ impl AppState {
         }
     }
 
-    fn finish_turn(&mut self) {
+    pub(super) fn finish_turn(&mut self) {
         let Some(pending) = self.pending.take() else {
             self.fail_turn("received completion without a pending request".to_owned());
             return;
@@ -136,7 +137,7 @@ impl AppState {
         self.persist_sessions();
     }
 
-    fn fail_turn(&mut self, error: String) {
+    pub(super) fn fail_turn(&mut self, error: String) {
         self.in_flight = false;
         if let Some(pending) = self.pending.take()
             && let Some(session) = self.sessions.active_mut()

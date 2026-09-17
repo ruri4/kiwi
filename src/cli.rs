@@ -1,74 +1,22 @@
-use crate::types::ReasoningEffort;
-use anyhow::{Context, Result, bail};
+use crate::config::{self, Config};
+use anyhow::{Context, Result};
 use clap::Parser;
+use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(
     name = "llm-chat",
     version,
-    about = "Chat with a Modal-hosted OpenAI-compatible streaming endpoint",
-    after_help = "Authentication is read only from LLM_CHAT_API_KEY; it is never accepted as a command-line option.\nThe endpoint must be the complete chat-completions URL, typically ending in /v1/chat/completions."
+    about = "Chat with OpenAI-compatible streaming endpoints",
+    after_help = "Endpoint, model, and reasoning settings come from YAML. API keys are read from the process environment or referenced .env entries."
 )]
 struct Cli {
-    /// Exact OpenAI-compatible chat-completions URL (or LLM_CHAT_ENDPOINT)
-    #[arg(long, env = "LLM_CHAT_ENDPOINT", value_name = "URL", required = true)]
-    endpoint: String,
-
-    /// Model identifier sent to the endpoint (or LLM_CHAT_MODEL)
-    #[arg(
-        long,
-        env = "LLM_CHAT_MODEL",
-        value_name = "MODEL",
-        default_value = "llm"
-    )]
-    model: String,
-
-    /// Reasoning effort: auto, none, low, medium, or high
-    #[arg(
-        long,
-        env = "LLM_CHAT_REASONING_EFFORT",
-        value_name = "EFFORT",
-        default_value_t = ReasoningEffort::Auto
-    )]
-    reasoning_effort: ReasoningEffort,
+    /// YAML endpoint profile configuration (or LLM_CHAT_CONFIG)
+    #[arg(long, env = "LLM_CHAT_CONFIG", value_name = "PATH")]
+    config: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug)]
-pub struct Config {
-    pub endpoint: String,
-    pub model: String,
-    pub api_key: Option<String>,
-    pub reasoning_effort: ReasoningEffort,
-}
-
-impl Config {
-    pub fn load() -> Result<Self> {
-        if let Err(error) = dotenvy::dotenv()
-            && !error.not_found()
-        {
-            return Err(error).context("failed to load optional .env file");
-        }
-
-        let cli = Cli::parse();
-        if cli.endpoint.trim().is_empty() {
-            bail!("--endpoint/LLM_CHAT_ENDPOINT cannot be empty");
-        }
-        if cli.model.trim().is_empty() {
-            bail!("--model/LLM_CHAT_MODEL cannot be empty");
-        }
-
-        let api_key = match std::env::var("LLM_CHAT_API_KEY") {
-            Ok(value) if value.is_empty() => None,
-            Ok(value) => Some(value),
-            Err(std::env::VarError::NotPresent) => None,
-            Err(error) => return Err(error).context("LLM_CHAT_API_KEY is not valid Unicode"),
-        };
-
-        Ok(Self {
-            endpoint: cli.endpoint,
-            model: cli.model,
-            api_key,
-            reasoning_effort: cli.reasoning_effort,
-        })
-    }
+pub(crate) fn load() -> Result<Config> {
+    let cli = Cli::parse();
+    config::load(cli.config).context("failed to load configuration")
 }

@@ -3,12 +3,13 @@ use crate::types::{Message, ReasoningEffort};
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use reqwest::header::ACCEPT;
+use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::mpsc::UnboundedSender;
 
 const ERROR_BODY_LIMIT: usize = 8 * 1024;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ChatRequest {
     pub endpoint: String,
     pub model: String,
@@ -17,12 +18,78 @@ pub struct ChatRequest {
     pub reasoning_effort: ReasoningEffort,
 }
 
+#[derive(Clone)]
+pub struct ModelsRequest {
+    pub endpoint: String,
+    pub api_key: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum NetworkEvent {
     Delta(String),
     Reasoning(String),
     Finished,
     Failed(String),
+    Models(Vec<String>),
+    ModelsFailed(String),
+}
+
+pub async fn discover_models(
+    client: reqwest::Client,
+    request: ModelsRequest,
+    sender: UnboundedSender<NetworkEvent>,
+) {
+    let event = match run_discovery(client, &request).await {
+        Ok(models) => NetworkEvent::Models(models),
+        Err(error) => NetworkEvent::ModelsFailed(redact_key(
+            &format!("{error:#}"),
+            request.api_key.as_deref(),
+        )),
+    };
+    let _receiver_closed = sender.send(event).is_err();
+}
+
+async fn run_discovery(client: reqwest::Client, request: &ModelsRequest) -> Result<Vec<String>> {
+    let mut builder = client.get(&request.endpoint);
+    if let Some(api_key) = &request.api_key {
+        builder = builder.bearer_auth(api_key);
+    }
+    let response = builder
+        .send()
+        .await
+        .context("model discovery request failed")?;
+    let status = response.status();
+    if !status.is_success() {
+        anyhow::bail!("model discovery returned HTTP {status}");
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .context("failed to read model discovery response")?;
+    parse_models(&bytes).context("failed to decode model discovery response")
+}
+
+#[derive(Deserialize)]
+struct ModelsResponse {
+    data: Vec<ModelEntry>,
+}
+
+#[derive(Deserialize)]
+struct ModelEntry {
+    id: String,
+}
+
+fn parse_models(bytes: &[u8]) -> Result<Vec<String>> {
+    let response: ModelsResponse = serde_json::from_slice(bytes)?;
+    let mut models = response
+        .data
+        .into_iter()
+        .map(|model| model.id)
+        .filter(|id| !id.trim().is_empty())
+        .collect::<Vec<_>>();
+    models.sort_unstable();
+    models.dedup();
+    Ok(models)
 }
 
 pub fn client() -> Result<reqwest::Client> {
@@ -145,5 +212,24 @@ fn redact_key(message: &str, api_key: Option<&str>) -> String {
     match api_key.filter(|key| !key.is_empty()) {
         Some(key) => message.replace(key, "[REDACTED]"),
         None => message.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_models;
+
+    #[test]
+    fn model_list_parser_sorts_deduplicates_and_ignores_blank_ids() {
+        let models =
+            parse_models(br#"{"data":[{"id":"zeta"},{"id":" "},{"id":"alpha"},{"id":"zeta"}]}"#)
+                .expect("valid response");
+        assert_eq!(models, ["alpha", "zeta"]);
+    }
+
+    #[test]
+    fn model_list_parser_rejects_nonstandard_shapes() {
+        assert!(parse_models(br#"{"models":["a"]}"#).is_err());
+        assert!(parse_models(br#"{"data":[{"name":"a"}]}"#).is_err());
     }
 }

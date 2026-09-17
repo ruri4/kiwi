@@ -7,6 +7,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+mod picker;
 mod session_browser;
 
 const INK: Color = Color::Rgb(10, 11, 16);
@@ -37,6 +38,8 @@ pub fn draw(frame: &mut Frame<'_>, state: &mut AppState) {
     draw_footer(frame, footer);
     if state.session_browser().is_some() {
         session_browser::draw(frame, state);
+    } else if state.picker().is_some() {
+        picker::draw(frame, state);
     }
 }
 
@@ -54,6 +57,8 @@ fn draw_header(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             state.active_session_name().to_owned(),
             Style::default().fg(CYAN),
         ),
+        Span::styled("  endpoint ", Style::default().fg(MUTED)),
+        Span::styled(state.endpoint_name().to_owned(), Style::default().fg(CYAN)),
         Span::styled("  model ", Style::default().fg(MUTED)),
         Span::styled(state.model().to_owned(), Style::default().fg(VIOLET)),
         Span::styled("  reasoning ", Style::default().fg(MUTED)),
@@ -251,7 +256,7 @@ fn draw_footer(frame: &mut Frame<'_>, area: Rect) {
         .padding(Padding::new(2, 2, 1, 1))
         .style(Style::default().bg(INK));
     let footer = Paragraph::new(
-        "enter send  alt+enter newline  ctrl+s sessions  pgup/pgdn scroll  ctrl+r effort  ctrl+c/q quit",
+        "enter send  alt+enter newline  ctrl+s sessions  ctrl+e endpoint  ctrl+m model  ctrl+r effort  pgup/pgdn scroll  ctrl+c/q quit",
     )
     .style(Style::default().fg(MUTED).bg(INK))
     .block(block);

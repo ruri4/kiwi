@@ -1,9 +1,9 @@
 use std::fmt;
-use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum ReasoningEffort {
     #[default]
     Auto,
@@ -44,21 +44,6 @@ impl fmt::Display for ReasoningEffort {
             Self::Medium => "medium",
             Self::High => "high",
         })
-    }
-}
-
-impl FromStr for ReasoningEffort {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "auto" => Ok(Self::Auto),
-            "none" => Ok(Self::None),
-            "low" => Ok(Self::Low),
-            "medium" => Ok(Self::Medium),
-            "high" => Ok(Self::High),
-            _ => Err("expected one of: auto, none, low, medium, high".to_owned()),
-        }
     }
 }
 

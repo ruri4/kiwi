@@ -1,0 +1,13 @@
+# Copy this file to the platform configuration directory as config.yaml,
+# or pass its path with --config / LLM_CHAT_CONFIG.
+default_endpoint: local
+reasoning_effort: auto
+endpoints:
+  - name: local
+    base_url: http://localhost:8000/v1
+    default_model: example-local-model
+
+  - name: hosted
+    base_url: https://api.example.invalid/v1/
+    api_key_env: EXAMPLE_LLM_API_KEY
+    default_model: example-hosted-model

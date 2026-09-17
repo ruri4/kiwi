@@ -1,4 +1,4 @@
-use super::SessionStorage;
+use super::{GlobalSelection, SessionStorage};
 use crate::session::Sessions;
 use crate::types::{Message, Role};
 use std::fs;
@@ -45,13 +45,20 @@ fn persistence_round_trip_preserves_both_histories_and_active_session() {
         },
     ];
 
-    storage.save(&sessions).expect("save sessions");
+    let selection = GlobalSelection {
+        endpoint: "local".to_owned(),
+        model: Some("model-a".to_owned()),
+    };
+    storage
+        .save(&sessions, Some(&selection))
+        .expect("save sessions");
     let loaded = storage
         .load()
         .expect("load sessions")
         .expect("store exists");
-    assert_eq!(loaded.active_id(), sessions.active_id());
-    assert_eq!(loaded.items(), sessions.items());
+    assert_eq!(loaded.sessions.active_id(), sessions.active_id());
+    assert_eq!(loaded.sessions.items(), sessions.items());
+    assert_eq!(loaded.selection, Some(selection));
     #[cfg(unix)]
     {
         let mode = fs::metadata(directory.join("sessions.json"))
@@ -60,6 +67,24 @@ fn persistence_round_trip_preserves_both_histories_and_active_session() {
             .mode();
         assert_eq!(mode & 0o077, 0);
     }
+    fs::remove_dir_all(directory).expect("remove test directory");
+}
+
+#[test]
+fn version_one_store_migrates_without_a_selection() {
+    let directory = temporary_directory("v1");
+    let path = directory.join("sessions.json");
+    fs::write(
+        &path,
+        br#"{"version":1,"active_session_id":1,"next_session_id":2,"sessions":[{"id":1,"title":"Untitled","manual_title":false,"transcript":[],"conversation":[]}]}"#,
+    )
+    .expect("write v1 store");
+    let loaded = SessionStorage::at(path)
+        .load()
+        .expect("load v1")
+        .expect("store exists");
+    assert_eq!(loaded.sessions.active_id(), 1);
+    assert_eq!(loaded.selection, None);
     fs::remove_dir_all(directory).expect("remove test directory");
 }
 
