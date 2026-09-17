@@ -14,6 +14,7 @@ struct PendingTurn {
     user: String,
     assistant_index: usize,
     reasoning_index: Option<usize>,
+    pending_whitespace: String,
 }
 
 pub(crate) struct AppState {
@@ -135,6 +136,7 @@ impl AppState {
             user: user.clone(),
             assistant_index,
             reasoning_index: None,
+            pending_whitespace: String::new(),
         });
         self.in_flight = true;
         self.scroll_from_bottom = 0;
@@ -157,20 +159,28 @@ impl AppState {
 
     pub fn handle_network(&mut self, event: NetworkEvent) {
         match event {
-            NetworkEvent::Delta(content) => {
-                if content.is_empty() {
-                    return;
-                }
-                let index = self.pending.as_ref().map(|turn| turn.assistant_index);
-                let message = index.and_then(|index| self.transcript.get_mut(index));
-                if let Some(message) = message {
-                    message.content.push_str(&content);
-                }
-            }
+            NetworkEvent::Delta(content) => self.append_delta(content),
             NetworkEvent::Reasoning(content) => self.append_reasoning(content),
             NetworkEvent::Finished => self.finish_turn(),
             NetworkEvent::Failed(error) => self.fail_turn(error),
         }
+    }
+
+    fn append_delta(&mut self, content: String) {
+        if content.is_empty() {
+            return;
+        }
+        let Some(pending) = self.pending.as_mut() else {
+            return;
+        };
+        let Some(message) = self.transcript.get_mut(pending.assistant_index) else {
+            return;
+        };
+        append_trimmed_delta(
+            &mut message.content,
+            &mut pending.pending_whitespace,
+            &content,
+        );
     }
 
     fn append_reasoning(&mut self, content: String) {
@@ -253,5 +263,53 @@ impl AppState {
             content: error,
         });
         self.scroll_from_bottom = 0;
+    }
+}
+
+fn append_trimmed_delta(output: &mut String, pending_whitespace: &mut String, content: &str) {
+    for character in content.chars() {
+        if character.is_whitespace() {
+            if !output.is_empty() {
+                pending_whitespace.push(character);
+            }
+        } else {
+            output.push_str(pending_whitespace);
+            pending_whitespace.clear();
+            output.push(character);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::append_trimmed_delta;
+
+    fn stream(chunks: &[&str]) -> (String, String) {
+        let (mut output, mut pending) = (String::new(), String::new());
+        for chunk in chunks {
+            append_trimmed_delta(&mut output, &mut pending, chunk);
+        }
+        (output, pending)
+    }
+
+    #[test]
+    fn trims_leading_and_trailing_whitespace_across_chunks() {
+        let (output, pending) = stream(&[" \n", "\u{2003}answer", "\u{a0}\t"]);
+        assert_eq!(output, "answer");
+        assert_eq!(pending, "\u{a0}\t");
+    }
+
+    #[test]
+    fn preserves_internal_whitespace_across_chunks() {
+        let (output, pending) = stream(&["alpha \u{2003}", "\n beta"]);
+        assert_eq!(output, "alpha \u{2003}\n beta");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn all_whitespace_output_stays_empty() {
+        let (output, pending) = stream(&["\u{2003}", "\n\t"]);
+        assert!(output.is_empty());
+        assert!(pending.is_empty());
     }
 }
