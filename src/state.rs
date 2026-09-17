@@ -52,10 +52,6 @@ impl AppState {
         }
     }
 
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
-    }
-
     pub fn model(&self) -> &str {
         &self.model
     }

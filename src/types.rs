@@ -77,15 +77,6 @@ impl Role {
             Self::Error => None,
         }
     }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::User => "you",
-            Self::Assistant => "model",
-            Self::Reasoning => "reasoning",
-            Self::Error => "error",
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
