@@ -38,6 +38,7 @@ pub(crate) struct AppState {
     discovering: bool,
     picker: Option<Picker>,
     reasoning_effort: ReasoningEffort,
+    agents: crate::agents::InstructionContext,
     sessions: Sessions,
     storage: SessionStorage,
     pending: Option<PendingTurn>,
@@ -47,6 +48,7 @@ pub(crate) struct AppState {
 
 impl AppState {
     pub fn load(config: Config) -> Result<Self> {
+        let agents = crate::agents::discover()?;
         let storage = SessionStorage::discover()?;
         let stored = storage
             .load()
@@ -93,6 +95,7 @@ impl AppState {
             discovering: false,
             picker: None,
             reasoning_effort: config.reasoning_effort,
+            agents,
             sessions,
             storage,
             pending: None,

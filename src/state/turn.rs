@@ -1,4 +1,5 @@
 use super::{AppState, PendingTurn};
+use crate::agents::InstructionContext;
 use crate::network::ChatRequest;
 use crate::types::{Message, Role};
 
@@ -45,7 +46,7 @@ impl AppState {
         let mut messages = conversation;
         messages.push(Message {
             role: Role::User,
-            content: user,
+            content: outbound_user_content(&self.agents, &user),
         });
         Some(ChatRequest {
             endpoint,
@@ -167,6 +168,10 @@ impl AppState {
     }
 }
 
+fn outbound_user_content(agents: &InstructionContext, user: &str) -> String {
+    agents.for_request(user)
+}
+
 fn append_trimmed_delta(output: &mut String, pending_whitespace: &mut String, content: &str) {
     for character in content.chars() {
         if character.is_whitespace() {
@@ -184,6 +189,8 @@ fn append_trimmed_delta(output: &mut String, pending_whitespace: &mut String, co
 #[cfg(test)]
 mod tests {
     use super::append_trimmed_delta;
+    use super::outbound_user_content;
+    use crate::agents::InstructionContext;
 
     fn stream(chunks: &[&str]) -> (String, String) {
         let (mut output, mut pending) = (String::new(), String::new());
@@ -212,5 +219,18 @@ mod tests {
         let (output, pending) = stream(&[" \n", "\u{2003}\u{a0}\t"]);
         assert!(output.is_empty());
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn instructions_only_change_outbound_user_content() {
+        let user = "keep this exact text";
+        let unchanged = outbound_user_content(&InstructionContext::default(), user);
+        assert_eq!(unchanged, user);
+
+        let agents = InstructionContext::from_contents(&["follow this context"]);
+        let outbound = outbound_user_content(&agents, user);
+        assert_eq!(user, "keep this exact text");
+        assert!(outbound.contains("follow this context"));
+        assert!(outbound.ends_with(user));
     }
 }

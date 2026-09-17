@@ -70,6 +70,12 @@ At startup, a saved model or YAML default is retained when it appears in discove
 
 Endpoint and model selectors are idle-only and only one modal can be open. Switching endpoints starts discovery for the selected profile.
 
+## AGENTS.md instructions
+
+At startup, llm-chat uses its launch working directory as the project scope and looks for standard Markdown files named `AGENTS.md` there and in every ancestor directory. Files are loaded from the outermost parent to the launch directory, so the closest file takes precedence over conflicting instructions from broader parent files. The files do not require headings or any other fields.
+
+For each chat request, the discovered instructions are sent only in the outbound current-turn user content, followed by the explicit user request. The explicit user prompt takes precedence over every `AGENTS.md` instruction. The injected context is not displayed, included in the transcript, used for automatic titles, or persisted, and when no file is found the outbound user content is unchanged. llm-chat treats these files as raw Markdown and cannot execute commands found in them.
+
 ## keys
 
 | key | action |
