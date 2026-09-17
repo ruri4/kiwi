@@ -1,5 +1,5 @@
 use crate::sse::{SseDecoder, SseItem};
-use crate::types::Message;
+use crate::types::{Message, ReasoningEffort};
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use reqwest::header::ACCEPT;
@@ -14,11 +14,13 @@ pub struct ChatRequest {
     pub model: String,
     pub api_key: Option<String>,
     pub messages: Vec<Message>,
+    pub reasoning_effort: ReasoningEffort,
 }
 
 #[derive(Debug)]
 pub enum NetworkEvent {
     Delta(String),
+    Reasoning(String),
     Finished,
     Failed(String),
 }
@@ -60,11 +62,14 @@ async fn run_stream(
                 .map(|role| json!({ "role": role, "content": message.content }))
         })
         .collect::<Vec<_>>();
-    let payload = json!({
+    let mut payload = json!({
         "model": request.model,
         "messages": messages,
         "stream": true
     });
+    if let Some(effort) = request.reasoning_effort.api_value() {
+        payload["reasoning_effort"] = json!(effort);
+    }
 
     let mut builder = client
         .post(&request.endpoint)
@@ -125,6 +130,7 @@ fn forward(items: Vec<SseItem>, sender: &UnboundedSender<NetworkEvent>) -> bool 
     for item in items {
         let event = match item {
             SseItem::Content(content) => NetworkEvent::Delta(content),
+            SseItem::Reasoning(content) => NetworkEvent::Reasoning(content),
             SseItem::Done => NetworkEvent::Finished,
         };
         let done = matches!(&event, NetworkEvent::Finished);

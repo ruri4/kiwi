@@ -1,7 +1,7 @@
 use crate::cli::Config;
 use crate::input::Composer;
 use crate::network::{ChatRequest, NetworkEvent};
-use crate::types::{Message, Role};
+use crate::types::{Message, ReasoningEffort, Role};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub(crate) enum Action {
@@ -13,6 +13,7 @@ pub(crate) enum Action {
 struct PendingTurn {
     user: String,
     assistant_index: usize,
+    reasoning_index: Option<usize>,
 }
 
 pub(crate) struct AppState {
@@ -24,6 +25,7 @@ pub(crate) struct AppState {
     endpoint: String,
     model: String,
     api_key: Option<String>,
+    reasoning_effort: ReasoningEffort,
     conversation: Vec<Message>,
     pending: Option<PendingTurn>,
     status: String,
@@ -41,6 +43,7 @@ impl AppState {
             endpoint: config.endpoint,
             model: config.model,
             api_key: config.api_key,
+            reasoning_effort: config.reasoning_effort,
             conversation: Vec::new(),
             pending: None,
             status: "ready".to_owned(),
@@ -54,6 +57,10 @@ impl AppState {
 
     pub fn model(&self) -> &str {
         &self.model
+    }
+
+    pub fn reasoning_effort(&self) -> ReasoningEffort {
+        self.reasoning_effort
     }
 
     pub fn status(&self) -> &str {
@@ -72,6 +79,14 @@ impl AppState {
             && matches!(key.code, KeyCode::Char('c' | 'C' | 'q' | 'Q'))
         {
             return Action::Quit;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('r' | 'R'))
+        {
+            if !self.in_flight {
+                self.reasoning_effort = self.reasoning_effort.cycle();
+            }
+            return Action::Continue;
         }
 
         match key.code {
@@ -119,6 +134,7 @@ impl AppState {
         self.pending = Some(PendingTurn {
             user: user.clone(),
             assistant_index,
+            reasoning_index: None,
         });
         self.in_flight = true;
         self.scroll_from_bottom = 0;
@@ -135,20 +151,53 @@ impl AppState {
             model: self.model.clone(),
             api_key: self.api_key.clone(),
             messages,
+            reasoning_effort: self.reasoning_effort,
         }
     }
 
     pub fn handle_network(&mut self, event: NetworkEvent) {
         match event {
             NetworkEvent::Delta(content) => {
+                if content.is_empty() {
+                    return;
+                }
                 let index = self.pending.as_ref().map(|turn| turn.assistant_index);
                 let message = index.and_then(|index| self.transcript.get_mut(index));
                 if let Some(message) = message {
                     message.content.push_str(&content);
                 }
             }
+            NetworkEvent::Reasoning(content) => self.append_reasoning(content),
             NetworkEvent::Finished => self.finish_turn(),
             NetworkEvent::Failed(error) => self.fail_turn(error),
+        }
+    }
+
+    fn append_reasoning(&mut self, content: String) {
+        if content.is_empty() {
+            return;
+        }
+        let Some(pending) = self.pending.as_mut() else {
+            return;
+        };
+        let index = match pending.reasoning_index {
+            Some(index) => index,
+            None => {
+                let index = pending.assistant_index;
+                self.transcript.insert(
+                    index,
+                    Message {
+                        role: Role::Reasoning,
+                        content: String::new(),
+                    },
+                );
+                pending.reasoning_index = Some(index);
+                pending.assistant_index += 1;
+                index
+            }
+        };
+        if let Some(message) = self.transcript.get_mut(index) {
+            message.content.push_str(&content);
         }
     }
 

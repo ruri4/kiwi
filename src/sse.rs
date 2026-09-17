@@ -4,6 +4,7 @@ use serde_json::Value;
 #[derive(Debug, Eq, PartialEq)]
 pub enum SseItem {
     Content(String),
+    Reasoning(String),
     Done,
 }
 
@@ -87,12 +88,28 @@ impl SseDecoder {
             let preview: String = data.chars().take(160).collect();
             format!("malformed SSE data JSON: {preview}")
         })?;
-        match value.pointer("/choices/0/delta/content") {
-            Some(Value::String(content)) => items.push(SseItem::Content(content.clone())),
-            Some(Value::Null) | None => {}
-            Some(_) => bail!("SSE delta content was not a string or null"),
+        let reasoning_content = optional_string(
+            value.pointer("/choices/0/delta/reasoning_content"),
+            "reasoning_content",
+        )?;
+        let reasoning = optional_string(value.pointer("/choices/0/delta/reasoning"), "reasoning")?;
+        if let Some(reasoning) = reasoning_content.or(reasoning) {
+            items.push(SseItem::Reasoning(reasoning.to_owned()));
+        }
+        if let Some(content) =
+            optional_string(value.pointer("/choices/0/delta/content"), "content")?
+        {
+            items.push(SseItem::Content(content.to_owned()));
         }
         Ok(())
+    }
+}
+
+fn optional_string<'a>(value: Option<&'a Value>, field: &str) -> Result<Option<&'a str>> {
+    match value {
+        Some(Value::String(value)) => Ok(Some(value)),
+        Some(Value::Null) | None => Ok(None),
+        Some(_) => bail!("SSE delta {field} was not a string or null"),
     }
 }
 
@@ -123,6 +140,48 @@ mod tests {
         )?;
         assert_eq!(items, vec![SseItem::Content("ok".into())]);
         Ok(())
+    }
+
+    #[test]
+    fn streams_both_reasoning_field_names_and_content() -> Result<()> {
+        let mut decoder = SseDecoder::default();
+        let items = decoder.feed(
+            b"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"first\",\"content\":\"answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"reasoning\":\" second\"}}]}\n\n",
+        )?;
+        assert_eq!(
+            items,
+            vec![
+                SseItem::Reasoning("first".into()),
+                SseItem::Content("answer".into()),
+                SseItem::Reasoning(" second".into()),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn prefers_reasoning_content_when_both_are_strings() -> Result<()> {
+        let mut decoder = SseDecoder::default();
+        let items = decoder.feed(
+            b"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"preferred\",\"reasoning\":\"duplicate\"}}]}\n\n",
+        )?;
+        assert_eq!(items, vec![SseItem::Reasoning("preferred".into())]);
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_reasoning_types_are_errors() {
+        for field in ["reasoning_content", "reasoning"] {
+            let mut decoder = SseDecoder::default();
+            let event =
+                format!("data: {{\"choices\":[{{\"delta\":{{\"{field}\":[\"nope\"]}}}}]}}\n\n");
+            let error = decoder.feed(event.as_bytes());
+            assert!(error.is_err_and(|value| {
+                value
+                    .to_string()
+                    .contains(&format!("{field} was not a string or null"))
+            }));
+        }
     }
 
     #[test]

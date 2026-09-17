@@ -1,3 +1,4 @@
+use crate::types::ReasoningEffort;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 
@@ -21,6 +22,15 @@ struct Cli {
         default_value = "llm"
     )]
     model: String,
+
+    /// Reasoning effort: auto, none, low, medium, or high
+    #[arg(
+        long,
+        env = "LLM_CHAT_REASONING_EFFORT",
+        value_name = "EFFORT",
+        default_value_t = ReasoningEffort::Auto
+    )]
+    reasoning_effort: ReasoningEffort,
 }
 
 #[derive(Clone, Debug)]
@@ -28,6 +38,7 @@ pub struct Config {
     pub endpoint: String,
     pub model: String,
     pub api_key: Option<String>,
+    pub reasoning_effort: ReasoningEffort,
 }
 
 impl Config {
@@ -57,6 +68,7 @@ impl Config {
             endpoint: cli.endpoint,
             model: cli.model,
             api_key,
+            reasoning_effort: cli.reasoning_effort,
         })
     }
 }

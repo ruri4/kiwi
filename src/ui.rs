@@ -44,6 +44,11 @@ fn draw_header(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         Span::styled(state.endpoint().to_owned(), Style::default().fg(FOG)),
         Span::styled("  model ", Style::default().fg(MUTED)),
         Span::styled(state.model().to_owned(), Style::default().fg(VIOLET)),
+        Span::styled("  reasoning ", Style::default().fg(MUTED)),
+        Span::styled(
+            state.reasoning_effort().to_string(),
+            Style::default().fg(CYAN),
+        ),
         Span::styled("  status ", Style::default().fg(MUTED)),
         Span::styled(state.status().to_owned(), status_style),
     ]);
@@ -58,6 +63,7 @@ fn draw_transcript(frame: &mut Frame<'_>, state: &mut AppState, area: Rect) {
         let color = match message.role {
             Role::User => CYAN,
             Role::Assistant => VIOLET,
+            Role::Reasoning => MUTED,
             Role::Error => AMBER,
         };
         lines.push(Line::from(Span::styled(
@@ -65,10 +71,10 @@ fn draw_transcript(frame: &mut Frame<'_>, state: &mut AppState, area: Rect) {
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         )));
         rows += 1;
-        let content_style = if message.role == Role::Error {
-            Style::default().fg(AMBER)
-        } else {
-            Style::default().fg(FOG)
+        let content_style = match message.role {
+            Role::Error => Style::default().fg(AMBER),
+            Role::Reasoning => Style::default().fg(MUTED),
+            _ => Style::default().fg(FOG),
         };
         for content_line in message.content.split('\n') {
             lines.push(Line::from(vec![
@@ -158,7 +164,9 @@ fn saturating_u16(value: usize) -> u16 {
 }
 
 fn draw_footer(frame: &mut Frame<'_>, area: Rect) {
-    let footer = Paragraph::new("enter send  alt+enter newline  pgup/pgdn scroll  ctrl+c/q quit")
-        .style(Style::default().fg(MUTED).bg(INK));
+    let footer = Paragraph::new(
+        "enter send  alt+enter newline  pgup/pgdn scroll  ctrl+r effort  ctrl+c/q quit",
+    )
+    .style(Style::default().fg(MUTED).bg(INK));
     frame.render_widget(footer, area);
 }
