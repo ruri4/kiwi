@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use crossterm::{execute, terminal};
+use crossterm::{event, execute, terminal};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{Stdout, stdout};
 
@@ -13,7 +13,11 @@ pub struct TerminalSession {
 impl TerminalSession {
     pub fn start() -> Result<Self> {
         terminal::enable_raw_mode().context("failed to enable terminal raw mode")?;
-        if let Err(error) = execute!(stdout(), terminal::EnterAlternateScreen) {
+        if let Err(error) = execute!(
+            stdout(),
+            terminal::EnterAlternateScreen,
+            event::EnableMouseCapture
+        ) {
             let cleanup = terminal::disable_raw_mode();
             return match cleanup {
                 Ok(()) => Err(error).context("failed to enter alternate screen"),
@@ -56,7 +60,11 @@ impl TerminalSession {
         if let Err(error) = self.terminal.show_cursor() {
             errors.push(format!("show cursor: {error}"));
         }
-        if let Err(error) = execute!(self.terminal.backend_mut(), terminal::LeaveAlternateScreen) {
+        if let Err(error) = execute!(
+            self.terminal.backend_mut(),
+            event::DisableMouseCapture,
+            terminal::LeaveAlternateScreen,
+        ) {
             errors.push(format!("leave alternate screen: {error}"));
         }
         if let Err(error) = terminal::disable_raw_mode() {
@@ -92,7 +100,11 @@ fn install_panic_restore() {
 }
 
 fn emergency_restore() -> Result<()> {
-    let alternate = execute!(stdout(), terminal::LeaveAlternateScreen);
+    let alternate = execute!(
+        stdout(),
+        event::DisableMouseCapture,
+        terminal::LeaveAlternateScreen,
+    );
     let raw = terminal::disable_raw_mode();
     match (alternate, raw) {
         (Ok(()), Ok(())) => Ok(()),

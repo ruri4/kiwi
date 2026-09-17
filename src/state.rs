@@ -2,7 +2,9 @@ use crate::cli::Config;
 use crate::input::Composer;
 use crate::network::{ChatRequest, NetworkEvent};
 use crate::types::{Message, ReasoningEffort, Role};
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
+
+const MOUSE_SCROLL_LINES: usize = 3;
 
 pub(crate) enum Action {
     Continue,
@@ -115,6 +117,20 @@ impl AppState {
             _ => {}
         }
         Action::Continue
+    }
+
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                self.scroll_from_bottom =
+                    self.scroll_from_bottom.saturating_add(MOUSE_SCROLL_LINES);
+            }
+            MouseEventKind::ScrollDown => {
+                self.scroll_from_bottom =
+                    self.scroll_from_bottom.saturating_sub(MOUSE_SCROLL_LINES);
+            }
+            _ => {}
+        }
     }
 
     fn start_request(&mut self) -> ChatRequest {

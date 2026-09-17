@@ -55,7 +55,8 @@ async fn run_loop(
                         }
                     },
                     Event::Paste(value) => state.composer.insert_str(&value),
-                    Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Mouse(_) => {}
+                    Event::Mouse(mouse) => state.handle_mouse(mouse),
+                    Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => {}
                 }
             }
             event = receiver.recv(), if state.in_flight => {
